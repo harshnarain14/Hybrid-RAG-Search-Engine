@@ -19,3 +19,6 @@ beautifulsoup4==4.12.3
 
 numpy==1.26.4
 pandas==2.2.2
+
+sentence-transformers==2.6.1
+
