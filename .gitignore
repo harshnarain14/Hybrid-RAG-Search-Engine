@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv/
+
+# FAISS index
+*.faiss
+*.pkl
+
+# Uploaded files
+data/uploads/*
+
+# Streamlit
+.streamlit/
+
+# OS
+.DS_Store
+Thumbs.db
