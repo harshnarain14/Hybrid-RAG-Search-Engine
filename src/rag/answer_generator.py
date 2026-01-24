@@ -1,18 +1,35 @@
 from typing import List
-from dotenv import dotenv_values
+import streamlit as st
 from groq import Groq
 
 
 def get_groq_client() -> Groq:
     """
-    Create Groq client using API key from local .env file.
+    Create Groq client using API key.
+    - Streamlit Cloud: st.secrets
+    - Local dev: .env fallback
     """
 
-    env = dotenv_values(".env")
-    groq_key = env.get("GROQ_API_KEY")
+    groq_key = None
+
+    # ✅ Streamlit Cloud (PRIMARY)
+    if hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets:
+        groq_key = st.secrets["GROQ_API_KEY"]
+
+    # ✅ Local fallback (.env)
+    if not groq_key:
+        try:
+            from dotenv import dotenv_values
+            env = dotenv_values(".env")
+            groq_key = env.get("GROQ_API_KEY")
+        except Exception:
+            pass
 
     if not groq_key:
-        raise RuntimeError("❌ GROQ_API_KEY missing in .env file")
+        raise RuntimeError(
+            "❌ GROQ_API_KEY not found. "
+            "Add it to Streamlit Secrets or local .env file."
+        )
 
     return Groq(api_key=groq_key)
 
@@ -23,10 +40,25 @@ def generate_answer(
     sources: List[str],
     model: str = "llama-3.3-70b-versatile",
 ) -> str:
-
     """
     Generate a grounded answer using Groq LLM and RAG context.
     """
+
+    # ----------------------------
+    # Safety checks
+    # ----------------------------
+    if not question or not question.strip():
+        return "⚠️ Please ask a valid question."
+
+    if not context or not context.strip():
+        return (
+            "⚠️ I could not find relevant information "
+            "in the selected sources to answer this question."
+        )
+
+    # Clamp context to avoid Groq 400 errors
+    MAX_CONTEXT_CHARS = 12000
+    context = context[:MAX_CONTEXT_CHARS]
 
     client = get_groq_client()
 
@@ -44,15 +76,21 @@ def generate_answer(
         "ANSWER:"
     )
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.2,
-        max_tokens=800,
-    )
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+            max_tokens=800,
+        )
+    except Exception as e:
+        return (
+            "⚠️ The language model could not process this request.\n\n"
+            f"Reason: {type(e).__name__}"
+        )
 
     message_content = response.choices[0].message.content
 
