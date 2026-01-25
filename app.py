@@ -8,6 +8,32 @@ from src.retrieval.hybrid_router import hybrid_retrieve
 from src.rag.context_builder import build_rag_context
 from src.rag.answer_generator import generate_answer
 
+def docs_from_uploaded_files(uploaded_files):
+    docs = []
+
+    for file in uploaded_files:
+        if file.name.lower().endswith(".pdf"):
+            reader = PdfReader(file)
+            text = "\n".join(page.extract_text() or "" for page in reader.pages)
+
+        elif file.name.lower().endswith(".txt"):
+            text = file.read().decode("utf-8")
+
+        else:
+            continue
+
+        docs.append(
+            Document(
+                page_content=text,
+                metadata={
+                    "source_id": file.name,
+                    "title": file.name,
+                    "source_type": "upload",
+                }
+            )
+        )
+
+    return docs
 # ----------------------------
 # Page Config
 # ----------------------------
