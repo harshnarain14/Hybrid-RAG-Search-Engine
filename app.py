@@ -16,10 +16,6 @@ from src.rag.answer_generator import generate_answer
 # Helpers
 # ----------------------------
 def docs_from_uploaded_files(uploaded_files):
-    """
-    Convert uploaded files (PDF / TXT) into LangChain Documents
-    directly from memory (Streamlit Cloud safe).
-    """
     docs = []
 
     for file in uploaded_files:
@@ -35,16 +31,15 @@ def docs_from_uploaded_files(uploaded_files):
 
         docs.append(
             Document(
-                page_content=text,
-                metadata={
-                    "source_id": file.name,
-                    "title": file.name,
-                    "source_type": "upload",
-                }
+                source_id=file.name,
+                source_type="upload",
+                title=file.name,
+                content=text,
             )
         )
 
     return docs
+
 
 
 # ----------------------------
