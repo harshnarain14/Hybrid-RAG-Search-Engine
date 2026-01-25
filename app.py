@@ -2,7 +2,8 @@ import streamlit as st
 from pathlib import Path
 
 from pypdf import PdfReader
-from langchain.schema import Document
+from src.models.document_models import Document
+
 
 from src.ingestion.ingestion_pipeline import ingest_documents
 from src.preprocessing.chunker import chunk_documents
