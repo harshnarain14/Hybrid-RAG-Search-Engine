@@ -1,6 +1,9 @@
 import streamlit as st
 from pathlib import Path
 
+from pypdf import PdfReader
+from langchain.schema import Document
+
 from src.ingestion.ingestion_pipeline import ingest_documents
 from src.preprocessing.chunker import chunk_documents
 from src.vectorstore.faiss_index import load_faiss_index, index_documents
@@ -8,7 +11,14 @@ from src.retrieval.hybrid_router import hybrid_retrieve
 from src.rag.context_builder import build_rag_context
 from src.rag.answer_generator import generate_answer
 
+# ----------------------------
+# Helpers
+# ----------------------------
 def docs_from_uploaded_files(uploaded_files):
+    """
+    Convert uploaded files (PDF / TXT) into LangChain Documents
+    directly from memory (Streamlit Cloud safe).
+    """
     docs = []
 
     for file in uploaded_files:
@@ -34,6 +44,8 @@ def docs_from_uploaded_files(uploaded_files):
         )
 
     return docs
+
+
 # ----------------------------
 # Page Config
 # ----------------------------
@@ -44,60 +56,29 @@ st.set_page_config(
 )
 
 # ----------------------------
-# POLISHED DARK THEME (HIGH CONTRAST)
+# Dark Theme (Readable & High Contrast)
 # ----------------------------
 st.markdown(
     """
     <style>
-    /* Main background */
     .stApp {
         background: radial-gradient(circle at top, #0f172a, #020617);
         color: #f9fafb;
     }
-
-    /* Main title */
     h1 {
         font-size: 42px !important;
         font-weight: 800 !important;
         color: #f9fafb !important;
-        margin-bottom: 0.25rem;
     }
-
-    /* Subtitle */
     .stCaption {
         font-size: 16px !important;
         color: #cbd5f5 !important;
         margin-bottom: 2rem;
     }
-
-    /* Section labels */
     label, p, span {
         color: #e5e7eb !important;
         font-size: 15px;
     }
-
-    /* File uploader container */
-    [data-testid="stFileUploader"] {
-        background-color: #020617;
-        border: 1px dashed #334155;
-        border-radius: 14px;
-        padding: 18px;
-        color: #e5e7eb;
-    }
-
-    /* Remove white uploader */
-    section[data-testid="stFileUploaderDropzone"] {
-        background-color: transparent !important;
-    }
-
-    /* Radio buttons */
-    .stRadio label {
-        font-size: 15px;
-        font-weight: 500;
-        color: #e5e7eb !important;
-    }
-
-    /* Text input */
     input[type="text"] {
         background-color: #020617 !important;
         color: #f9fafb !important;
@@ -106,12 +87,9 @@ st.markdown(
         padding: 12px;
         font-size: 16px;
     }
-
     input::placeholder {
         color: #64748b !important;
     }
-
-    /* Ask button */
     .stButton button {
         background: linear-gradient(135deg, #6366f1, #4f46e5);
         color: white !important;
@@ -121,35 +99,18 @@ st.markdown(
         padding: 0.5rem 1.4rem;
         border: none;
     }
-
-    /* Tabs */
     [data-testid="stTabs"] button {
         color: #94a3b8 !important;
-        font-size: 14px;
         font-weight: 600;
     }
-
     [data-testid="stTabs"] button[aria-selected="true"] {
         color: #f9fafb !important;
         border-bottom: 2px solid #6366f1;
-    }
-
-    /* Success & info boxes */
-    .stAlert {
-        background-color: #020617 !important;
-        border-left: 4px solid #6366f1;
-        color: #e5e7eb !important;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
-
-# ----------------------------
-# Upload Directory
-# ----------------------------
-UPLOAD_DIR = Path("data/uploads")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # ----------------------------
 # Session State
@@ -161,13 +122,13 @@ if "files_uploaded" not in st.session_state:
     st.session_state.files_uploaded = False
 
 # ----------------------------
-# HEADER
+# Header
 # ----------------------------
 st.title("🧠 Hybrid RAG Search Engine")
 st.caption("Chat with your documents and real-time web knowledge")
 
 # ----------------------------
-# FILE UPLOAD
+# File Upload (In-Memory)
 # ----------------------------
 uploaded_files = st.file_uploader(
     "📎 Attach documents (PDF / TXT)",
@@ -176,23 +137,20 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
-    for file in uploaded_files:
-        with open(UPLOAD_DIR / file.name, "wb") as f:
-            f.write(file.read())
     st.session_state.files_uploaded = True
-    st.success("Documents uploaded. They will be indexed on your next question.")
+    st.success(f"{len(uploaded_files)} document(s) uploaded. They will be indexed.")
 
 # ----------------------------
-# SEARCH MODE
+# Search Mode
 # ----------------------------
-search_mode: str = st.radio(
+search_mode = st.radio(
     "Search Mode",
     ["Document", "Web", "Hybrid"],
     horizontal=True,
-) or "Hybrid"
+)
 
 # ----------------------------
-# CHAT INPUT
+# Chat Input
 # ----------------------------
 question = st.text_input(
     "Ask a question",
@@ -200,18 +158,27 @@ question = st.text_input(
 )
 
 # ----------------------------
-# ASK
+# Ask Button
 # ----------------------------
 if st.button("Ask") and question:
     with st.spinner("Thinking..."):
 
+        # 🔹 Build FAISS index ONLY when needed
         if search_mode in ["Document", "Hybrid"]:
             if st.session_state.files_uploaded or st.session_state.faiss_index is None:
-                docs = ingest_documents(load_pdfs=True, load_texts=True)
+
+                if uploaded_files:
+                    docs = docs_from_uploaded_files(uploaded_files)
+                else:
+                    docs = ingest_documents(load_pdfs=True, load_texts=True)
+
                 chunks = chunk_documents(docs)
                 st.session_state.faiss_index = index_documents(chunks)
                 st.session_state.files_uploaded = False
 
+                st.success(f"Indexed {len(docs)} documents ({len(chunks)} chunks)")
+
+        # 🔹 Hybrid Retrieval
         result = hybrid_retrieve(
             query=question,
             faiss_index=st.session_state.faiss_index,
@@ -219,17 +186,22 @@ if st.button("Ask") and question:
             top_k=5,
         )
 
+        # 🔹 Build Context
         context, sources = build_rag_context(
             result["document_chunks"],
             result["web_results"],
         )
 
+        # 🔹 Generate Answer
         answer = generate_answer(
             question=question,
             context=context,
             sources=sources,
         )
 
+    # ----------------------------
+    # Output Tabs
+    # ----------------------------
     tab1, tab2, tab3 = st.tabs(["💬 Answer", "📄 Documents", "🌐 Web"])
 
     with tab1:
